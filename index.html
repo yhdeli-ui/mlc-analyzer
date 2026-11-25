@@ -97,7 +97,7 @@
       border-radius: 4px;
       overflow: hidden;
       position: relative;
-      min-height: 420px;
+      min-height: 460px;
     }
     canvas {
       display: block;
@@ -119,6 +119,13 @@
       <button class="btn-sub" id="btnRestore">↩ 원본 복원</button>
       <button class="btn-reset" id="btnReset">↺ 초기화</button>
       <button class="btn-analyze" id="btnAnalyze">🔍 현재 정렬로 분석</button>
+      <div class="box">
+        <span style="color:#a5d6a7;font-weight:bold;">화면확대:</span>
+        <button class="btn-reset" id="btnZoomOut">-</button>
+        <span class="val-badge" id="lblZoom" style="color:#a5d6a7;">1.00x</span>
+        <button class="btn-reset" id="btnZoomIn">+</button>
+        <button class="btn-reset" id="btnZoomReset">1x</button>
+      </div>
     </div>
 
     <div class="row">
@@ -162,7 +169,7 @@
   </div>
 
   <div class="help-bar">
-    순서: [✂️ MLC 영역 크롭] → 1차 [🔵 2점 정렬(좌·우 파란선)] → 2차 [📍 6점 롤+스트레치 정렬] (40번 좌·우 → 1번 좌·우 → 80번 좌·우, 6x 돋보기 지원)
+    핸드폰 조작: 두 손가락 벌려서 확대(최대 12배) & 두 손가락 이동 · 한 손가락으로 누른 채 조준 후 떼면 점 확정 · 1x 버튼으로 원복
   </div>
 
   <div class="result-bar" id="lblResult">
@@ -175,6 +182,7 @@
 
   <script>
     const BLUE_LINE = "#1d63ff";
+    const MAX_ZOOM = 12.0;
 
     const state = {
       img: null,
@@ -186,6 +194,12 @@
       angleDeg: 0,
       leftStretch: 1.0,
       rightStretch: 1.0,
+      viewZoom: 1.0,
+      viewPanX: 0.0,
+      viewPanY: 0.0,
+      panning: false,
+      panLastX: 0,
+      panLastY: 0,
       cropMode: false,
       cropStart: null,
       cropRect: null,
@@ -194,6 +208,8 @@
       twoPointLine: null,
       sixPointMode: false,
       sixPointSamples: [],
+      touchAimPos: null,
+      touchAimActive: false,
       hoverPos: null,
       line1Y: null,
       line40Y: null,
@@ -205,18 +221,21 @@
       lastDetections: []
     };
 
+    const activePointers = new Map();
+    let pinchState = null;
+
     const twoPointSteps = [
-      ["L_BLUE", "1차 1/2: 좌측 파란색 기준선 포인트 클릭/터치", BLUE_LINE],
-      ["R_BLUE", "1차 2/2: 우측 파란색 기준선 포인트 클릭/터치", BLUE_LINE]
+      ["L_BLUE", "1차 1/2: 좌측 파란선 누른 채 끌어서 맞추고 떼세요", BLUE_LINE],
+      ["R_BLUE", "1차 2/2: 우측 파란선 누른 채 끌어서 맞추고 떼세요", BLUE_LINE]
     ];
 
     const sixPointSteps = [
-      ["40L", "2차 1/6: 40번 Leaf 좌측(Y2) 리플렉터 선택", "#00e5ff"],
-      ["40R", "2차 2/6: 40번 Leaf 우측(Y1) 리플렉터 선택", "#00e5ff"],
-      ["1L",  "2차 3/6: 1번 Leaf 좌측(Y2) 리플렉터 선택",  "#00ff00"],
-      ["1R",  "2차 4/6: 1번 Leaf 우측(Y1) 리플렉터 선택",  "#00ff00"],
-      ["80L", "2차 5/6: 80번 Leaf 좌측(Y2) 리플렉터 선택", "#ffa500"],
-      ["80R", "2차 6/6: 80번 Leaf 우측(Y1) 리플렉터 선택", "#ffa500"]
+      ["40L", "2차 1/6: 40번 Leaf 좌측(Y2) 누른 채 끌어서 떼세요", "#00e5ff"],
+      ["40R", "2차 2/6: 40번 Leaf 우측(Y1) 누른 채 끌어서 떼세요", "#00e5ff"],
+      ["1L",  "2차 3/6: 1번 Leaf 좌측(Y2) 누른 채 끌어서 떼세요",  "#00ff00"],
+      ["1R",  "2차 4/6: 1번 Leaf 우측(Y1) 누른 채 끌어서 떼세요",  "#00ff00"],
+      ["80L", "2차 5/6: 80번 Leaf 좌측(Y2) 누른 채 끌어서 떼세요", "#ffa500"],
+      ["80R", "2차 6/6: 80번 Leaf 우측(Y1) 누른 채 끌어서 떼세요", "#ffa500"]
     ];
 
     const canvas = document.getElementById("mainCanvas");
@@ -230,10 +249,86 @@
 
     function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+    function syncZoomUI() {
+      document.getElementById("lblZoom").textContent = state.viewZoom.toFixed(2) + "x";
+    }
+
+    function resetViewZoom() {
+      state.viewZoom = 1.0;
+      state.viewPanX = 0.0;
+      state.viewPanY = 0.0;
+      pinchState = null;
+      syncZoomUI();
+      render(false);
+    }
+
+    function setZoomAtScreenPoint(newZoom, sx, sy) {
+      const clamped = clamp(+newZoom.toFixed(2), 1.0, MAX_ZOOM);
+      const oldZoom = state.viewZoom;
+      if (Math.abs(clamped - oldZoom) < 1e-6) return;
+
+      const worldX = (sx - state.viewPanX) / oldZoom;
+      const worldY = (sy - state.viewPanY) / oldZoom;
+
+      state.viewZoom = clamped;
+      if (clamped <= 1.001) {
+        state.viewZoom = 1.0;
+        state.viewPanX = 0.0;
+        state.viewPanY = 0.0;
+      } else {
+        state.viewPanX = sx - worldX * clamped;
+        state.viewPanY = sy - worldY * clamped;
+      }
+      syncZoomUI();
+      render(false);
+    }
+
+    function getTwoTouchMetrics() {
+      const pts = Array.from(activePointers.values());
+      if (pts.length < 2) return null;
+      const [p1, p2] = pts;
+      const dist = Math.max(8, Math.hypot(p2.x - p1.x, p2.y - p1.y));
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+      return { dist, midX, midY };
+    }
+
+    function updatePinchFromPointers() {
+      const m = getTwoTouchMetrics();
+      if (!m) {
+        pinchState = null;
+        return;
+      }
+      if (!pinchState) {
+        pinchState = {
+          startDist: m.dist,
+          startZoom: state.viewZoom,
+          worldX: (m.midX - state.viewPanX) / state.viewZoom,
+          worldY: (m.midY - state.viewPanY) / state.viewZoom
+        };
+        return;
+      }
+
+      const scaleFactor = m.dist / pinchState.startDist;
+      const nextZoom = clamp(+(pinchState.startZoom * scaleFactor).toFixed(2), 1.0, MAX_ZOOM);
+
+      if (nextZoom <= 1.001) {
+        state.viewZoom = 1.0;
+        state.viewPanX = 0.0;
+        state.viewPanY = 0.0;
+      } else {
+        state.viewZoom = nextZoom;
+        state.viewPanX = m.midX - pinchState.worldX * nextZoom;
+        state.viewPanY = m.midY - pinchState.worldY * nextZoom;
+      }
+      syncZoomUI();
+      render(false);
+    }
+
     function resizeCanvas() {
       const rect = wrap.getBoundingClientRect();
       const cw = Math.max(300, Math.floor(rect.width));
-      const ch = Math.max(360, Math.floor(window.innerHeight - rect.top - 12));
+      const ch = Math.max(420, Math.floor(window.innerHeight - rect.top - 12));
       wrap.style.height = ch + "px";
       if (canvas.width !== cw || canvas.height !== ch) {
         canvas.width = cw;
@@ -728,6 +823,19 @@
           ctx.stroke();
         }
       }
+
+      if ((state.twoPointMode || state.sixPointMode) && state.touchAimPos) {
+        const steps = state.twoPointMode ? twoPointSteps : sixPointSteps;
+        const samples = state.twoPointMode ? state.twoPointSamples : state.sixPointSamples;
+        const stepInfo = steps[Math.min(samples.length, steps.length - 1)];
+        const [ax, ay] = state.touchAimPos;
+        ctx.strokeStyle = stepInfo[2];
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(ax - 12, ay); ctx.lineTo(ax + 12, ay);
+        ctx.moveTo(ax, ay - 12); ctx.lineTo(ax, ay + 12);
+        ctx.stroke();
+      }
       ctx.restore();
     }
 
@@ -755,7 +863,7 @@
       if (!state.twoPointMode && !state.sixPointMode) return;
       const samples = state.twoPointMode ? state.twoPointSamples : state.sixPointSamples;
       const steps = state.twoPointMode ? twoPointSteps : sixPointSteps;
-      const target = state.hoverPos || (samples.length ? [samples[samples.length - 1][2], samples[samples.length - 1][3]] : null);
+      const target = state.touchAimPos || state.hoverPos || (samples.length ? [samples[samples.length - 1][2], samples[samples.length - 1][3]] : null);
       if (!target) return;
 
       const [px, py] = target;
@@ -802,8 +910,13 @@
     }
 
     function render(runDetection = false) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = "#121212";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.translate(state.viewPanX, state.viewPanY);
+      ctx.scale(state.viewZoom, state.viewZoom);
 
       if (state.img) {
         drawWarpedSourceImage();
@@ -817,6 +930,7 @@
       }
       drawDetections();
       drawLoupe();
+      ctx.restore();
     }
 
     function rgbToOpenCvHsv(r, g, b) {
@@ -989,6 +1103,8 @@
       state.twoPointSamples = [];
       state.sixPointMode = false;
       state.sixPointSamples = [];
+      state.touchAimPos = null;
+      state.touchAimActive = false;
       state.hoverPos = null;
       setModeButtons();
     }
@@ -1007,6 +1123,11 @@
           state.twoPointLine = null;
           state.leftStretch = 1.0;
           state.rightStretch = 1.0;
+          state.viewZoom = 1.0;
+          state.viewPanX = 0.0;
+          state.viewPanY = 0.0;
+          pinchState = null;
+          syncZoomUI();
           syncStretchUI();
           clearSubModes();
           setDefaultGuideLines(canvas.height);
@@ -1019,6 +1140,14 @@
       fileInput.value = "";
     });
 
+    document.getElementById("btnZoomOut").addEventListener("click", () => {
+      setZoomAtScreenPoint(state.viewZoom - 0.5, canvas.width / 2, canvas.height / 2);
+    });
+    document.getElementById("btnZoomIn").addEventListener("click", () => {
+      setZoomAtScreenPoint(state.viewZoom + 0.5, canvas.width / 2, canvas.height / 2);
+    });
+    document.getElementById("btnZoomReset").addEventListener("click", resetViewZoom);
+
     document.getElementById("btnCrop").addEventListener("click", () => {
       if (!state.img) return alert("먼저 이미지를 불러와 주세요.");
       const next = !state.cropMode;
@@ -1027,7 +1156,7 @@
       setModeButtons();
       if (state.cropMode) {
         lblResult.style.color = "#ff80ab";
-        lblResult.textContent = " ✂️ 크롭 모드: 시작 지점을 누른 채 끝점까지 드래그하세요. (누르는 순간 시작점이 고정됩니다)";
+        lblResult.textContent = " ✂️ 크롭 모드: 한 손가락으로 시작 지점을 누른 채 끝점까지 드래그하세요. (두 손가락으로 확대/이동 가능)";
       } else {
         analyze();
       }
@@ -1070,6 +1199,11 @@
       state.twoPointLine = null;
       state.leftStretch = 1.0;
       state.rightStretch = 1.0;
+      state.viewZoom = 1.0;
+      state.viewPanX = 0.0;
+      state.viewPanY = 0.0;
+      pinchState = null;
+      syncZoomUI();
       syncStretchUI();
       clearSubModes();
       computeResetTransform();
@@ -1080,6 +1214,11 @@
       setDefaultGuideLines(canvas.height);
       state.leftStretch = 1.0;
       state.rightStretch = 1.0;
+      state.viewZoom = 1.0;
+      state.viewPanX = 0.0;
+      state.viewPanY = 0.0;
+      pinchState = null;
+      syncZoomUI();
       syncStretchUI();
       state.twoPointLine = null;
       clearSubModes();
@@ -1145,6 +1284,8 @@
 
       state.twoPointMode = false;
       state.twoPointSamples = [];
+      state.touchAimPos = null;
+      state.touchAimActive = false;
       state.hoverPos = null;
       setModeButtons();
       analyze();
@@ -1216,6 +1357,8 @@
 
       state.sixPointMode = false;
       state.sixPointSamples = [];
+      state.touchAimPos = null;
+      state.touchAimActive = false;
       state.hoverPos = null;
       setModeButtons();
       analyze();
@@ -1265,32 +1408,75 @@
 
     function hitTest(x, y) {
       const [topY, midY, botY] = getGuideLines();
-      if (Math.abs(y - topY) <= 10) return "line1";
-      if (Math.abs(y - midY) <= 10) return "line40";
-      if (Math.abs(y - botY) <= 10) return "line80";
+      const tol = 10 / state.viewZoom;
+      if (Math.abs(y - topY) <= tol) return "line1";
+      if (Math.abs(y - midY) <= tol) return "line40";
+      if (Math.abs(y - botY) <= tol) return "line80";
       if (!state.img) return null;
 
       const h = getHandles();
-      if (Math.hypot(x - h.rotTop[0], y - h.rotTop[1]) <= 14) return "rotate_top";
+      const ptTol = 14 / state.viewZoom;
+      if (Math.hypot(x - h.rotTop[0], y - h.rotTop[1]) <= ptTol) return "rotate_top";
       for (const k of ["tl", "tr", "br", "bl"]) {
-        if (Math.hypot(x - h[k][0], y - h[k][1]) <= 14) return k;
+        if (Math.hypot(x - h[k][0], y - h[k][1]) <= ptTol) return k;
       }
       const [lx, ly] = inverseRotatePoint(x, y, state.angleDeg);
       if (Math.abs(lx) <= state.dispW / 2 && Math.abs(ly) <= state.dispH / 2) return "move";
       return null;
     }
 
-    function getCanvasCoords(evt) {
+    function getScreenCoords(evt) {
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / Math.max(1, rect.width);
       const scaleY = canvas.height / Math.max(1, rect.height);
       return [(evt.clientX - rect.left) * scaleX, (evt.clientY - rect.top) * scaleY];
     }
 
+    function getCanvasCoords(evt) {
+      const [sx, sy] = getScreenCoords(evt);
+      return [(sx - state.viewPanX) / state.viewZoom, (sy - state.viewPanY) / state.viewZoom];
+    }
+
+    canvas.addEventListener("contextmenu", (evt) => evt.preventDefault());
+
+    canvas.addEventListener("wheel", (evt) => {
+      evt.preventDefault();
+      const [sx, sy] = getScreenCoords(evt);
+      const factor = evt.deltaY < 0 ? 1.2 : 1 / 1.2;
+      setZoomAtScreenPoint(state.viewZoom * factor, sx, sy);
+    }, { passive: false });
+
     canvas.addEventListener("pointermove", (evt) => {
+      const [sx, sy] = getScreenCoords(evt);
+      if (activePointers.has(evt.pointerId)) {
+        activePointers.set(evt.pointerId, { x: sx, y: sy });
+      }
+
+      if (activePointers.size >= 2) {
+        state.touchAimActive = false;
+        state.touchAimPos = null;
+        state.cropStart = null;
+        state.cropRect = null;
+        state.activeMode = null;
+        updatePinchFromPointers();
+        return;
+      }
+
+      if (state.panning) {
+        state.viewPanX += sx - state.panLastX;
+        state.viewPanY += sy - state.panLastY;
+        state.panLastX = sx;
+        state.panLastY = sy;
+        render(false);
+        return;
+      }
+
       const [x, y] = getCanvasCoords(evt);
       if (state.twoPointMode || state.sixPointMode) {
         state.hoverPos = [x, y];
+        if (state.touchAimActive) {
+          state.touchAimPos = [x, y];
+        }
         render(false);
         return;
       }
@@ -1330,37 +1516,35 @@
 
     canvas.addEventListener("pointerdown", (evt) => {
       canvas.setPointerCapture(evt.pointerId);
-      const [x, y] = getCanvasCoords(evt);
+      const [sx, sy] = getScreenCoords(evt);
+      activePointers.set(evt.pointerId, { x: sx, y: sy });
 
-      if (state.twoPointMode) {
-        state.hoverPos = [x, y];
-        const idx = state.twoPointSamples.length;
-        if (idx < twoPointSteps.length) {
-          const [key] = twoPointSteps[idx];
-          state.twoPointSamples.push([key, BLUE_LINE, x, y]);
-          if (state.twoPointSamples.length >= 2) applyTwoPointAlignment();
-          else {
-            lblResult.style.color = "#80d8ff";
-            lblResult.textContent = " 🔵 " + twoPointSteps[state.twoPointSamples.length][1];
-            render(false);
-          }
-        }
+      if (activePointers.size >= 2) {
+        state.touchAimActive = false;
+        state.touchAimPos = null;
+        state.cropStart = null;
+        state.cropRect = null;
+        state.activeMode = null;
+        pinchState = null;
+        updatePinchFromPointers();
         return;
       }
 
-      if (state.sixPointMode) {
+      if (evt.button === 1 || evt.button === 2) {
+        evt.preventDefault();
+        state.panning = true;
+        state.panLastX = sx;
+        state.panLastY = sy;
+        return;
+      }
+
+      const [x, y] = getCanvasCoords(evt);
+
+      if (state.twoPointMode || state.sixPointMode) {
+        state.touchAimActive = true;
+        state.touchAimPos = [x, y];
         state.hoverPos = [x, y];
-        const idx = state.sixPointSamples.length;
-        if (idx < sixPointSteps.length) {
-          const [key, color] = sixPointSteps[idx];
-          state.sixPointSamples.push([key, color, x, y]);
-          if (state.sixPointSamples.length >= 6) applySixPointAlignment();
-          else {
-            lblResult.style.color = "#ffd54f";
-            lblResult.textContent = " 📍 " + sixPointSteps[state.sixPointSamples.length][1];
-            render(false);
-          }
-        }
+        render(false);
         return;
       }
 
@@ -1383,12 +1567,62 @@
       render(false);
     });
 
-    canvas.addEventListener("pointerup", (evt) => {
+    function handlePointerRelease(evt) {
       if (canvas.hasPointerCapture(evt.pointerId)) {
         canvas.releasePointerCapture(evt.pointerId);
       }
+      activePointers.delete(evt.pointerId);
+
+      if (activePointers.size < 2) {
+        pinchState = null;
+      }
+      if (activePointers.size > 0) {
+        return;
+      }
+
+      if (state.panning) {
+        state.panning = false;
+        return;
+      }
       const [x, y] = getCanvasCoords(evt);
-      if (state.twoPointMode || state.sixPointMode) return;
+
+      if (state.twoPointMode) {
+        if (!state.touchAimActive) return;
+        const [fx, fy] = state.touchAimPos || [x, y];
+        state.touchAimActive = false;
+        state.touchAimPos = null;
+        const idx = state.twoPointSamples.length;
+        if (idx < twoPointSteps.length) {
+          const [key] = twoPointSteps[idx];
+          state.twoPointSamples.push([key, BLUE_LINE, fx, fy]);
+          if (state.twoPointSamples.length >= 2) applyTwoPointAlignment();
+          else {
+            lblResult.style.color = "#80d8ff";
+            lblResult.textContent = " 🔵 " + twoPointSteps[state.twoPointSamples.length][1];
+            render(false);
+          }
+        }
+        return;
+      }
+
+      if (state.sixPointMode) {
+        if (!state.touchAimActive) return;
+        const [fx, fy] = state.touchAimPos || [x, y];
+        state.touchAimActive = false;
+        state.touchAimPos = null;
+        const idx = state.sixPointSamples.length;
+        if (idx < sixPointSteps.length) {
+          const [key, color] = sixPointSteps[idx];
+          state.sixPointSamples.push([key, color, fx, fy]);
+          if (state.sixPointSamples.length >= 6) applySixPointAlignment();
+          else {
+            lblResult.style.color = "#ffd54f";
+            lblResult.textContent = " 📍 " + sixPointSteps[state.sixPointSamples.length][1];
+            render(false);
+          }
+        }
+        return;
+      }
 
       if (state.cropMode && state.cropStart) {
         state.cropRect = [state.cropStart[0], state.cropStart[1], x, y];
@@ -1402,7 +1636,10 @@
         if (state.img) analyze();
         else render(false);
       }
-    });
+    }
+
+    canvas.addEventListener("pointerup", handlePointerRelease);
+    canvas.addEventListener("pointercancel", handlePointerRelease);
 
     window.addEventListener("resize", resizeCanvas);
     resizeCanvas();
