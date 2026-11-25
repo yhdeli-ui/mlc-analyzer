@@ -1,0 +1,1412 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Agility MLC Leaf Error Analyzer (Web)</title>
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    body {
+      margin: 0;
+      background: #1e1e1e;
+      color: #f0f0f0;
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    .toolbar {
+      background: #2d2d2d;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      border-bottom: 1px solid #3c3c3c;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+    button, input[type="text"] {
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      padding: 6px 10px;
+      color: #fff;
+    }
+    button { cursor: pointer; font-weight: bold; }
+    button:active { opacity: 0.82; }
+    .btn-load { background: #0078d4; }
+    .btn-crop { background: #8e24aa; }
+    .btn-two { background: #1565c0; }
+    .btn-six { background: #d84315; }
+    .btn-sub { background: #555555; font-weight: normal; }
+    .btn-reset { background: #444444; font-weight: normal; }
+    .btn-analyze { background: #2e7d32; }
+    .btn-active { background: #e53935 !important; }
+    .box {
+      background: #232323;
+      padding: 4px 8px;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+    }
+    .val-badge {
+      background: #141414;
+      padding: 3px 6px;
+      border-radius: 3px;
+      font-family: Consolas, monospace;
+      font-weight: bold;
+      min-width: 54px;
+      text-align: center;
+    }
+    input[type="text"] {
+      background: #141414;
+      color: #fff;
+      font-family: Consolas, monospace;
+      font-weight: bold;
+      width: 64px;
+      text-align: center;
+      padding: 4px;
+    }
+    input[type="range"] { width: 72px; cursor: pointer; }
+    .help-bar {
+      background: #252526;
+      color: #cccccc;
+      font-size: 12px;
+      padding: 5px 12px;
+    }
+    .result-bar {
+      background: #252526;
+      color: #4ec9b0;
+      font-size: 15px;
+      font-weight: bold;
+      padding: 9px 12px;
+      margin: 6px 12px 2px 12px;
+      border-radius: 4px;
+      word-break: break-word;
+    }
+    .canvas-wrap {
+      flex: 1;
+      margin: 6px 12px 12px 12px;
+      background: #121212;
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+      min-height: 420px;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <input type="file" id="fileInput" accept="image/*" style="display:none" />
+
+  <div class="toolbar">
+    <div class="row">
+      <button class="btn-load" id="btnLoad">📂 이미지 불러오기</button>
+      <button class="btn-crop" id="btnCrop">✂️ MLC 영역 크롭</button>
+      <button class="btn-two" id="btnTwo">🔵 2점 정렬(좌·우 파란선)</button>
+      <button class="btn-six" id="btnSix">📍 6점 롤+스트레치 정렬</button>
+      <button class="btn-sub" id="btnRestore">↩ 원본 복원</button>
+      <button class="btn-reset" id="btnReset">↺ 초기화</button>
+      <button class="btn-analyze" id="btnAnalyze">🔍 현재 정렬로 분석</button>
+    </div>
+
+    <div class="row">
+      <div class="box">
+        <span style="color:#80d8ff;font-weight:bold;">좌측늘림:</span>
+        <button class="btn-reset" id="btnLeftMinus">-</button>
+        <input type="range" id="rngLeft" min="0.70" max="1.80" step="0.01" value="1.00" />
+        <button class="btn-reset" id="btnLeftPlus">+</button>
+        <span class="val-badge" id="lblLeft" style="color:#80d8ff;">1.00x</span>
+      </div>
+
+      <div class="box">
+        <span style="color:#ffab40;font-weight:bold;">우측늘림:</span>
+        <button class="btn-reset" id="btnRightMinus">-</button>
+        <input type="range" id="rngRight" min="0.70" max="1.80" step="0.01" value="1.00" />
+        <button class="btn-reset" id="btnRightPlus">+</button>
+        <span class="val-badge" id="lblRight" style="color:#ffab40;">1.00x</span>
+      </div>
+
+      <div class="box">
+        <span style="color:#00e5ff;font-weight:bold;">롤(Roll):</span>
+        <button class="btn-reset" id="btnRollMinus">↺ -0.02°</button>
+        <span class="val-badge" id="lblRoll" style="color:#ffd54f;">+0.00°</span>
+        <button class="btn-reset" id="btnRollPlus">↻ +0.02°</button>
+        <input type="text" id="inpRoll" value="0.00" />
+        <button class="btn-load" id="btnRollApply" style="padding:4px 8px;">적용</button>
+      </div>
+
+      <div class="box">
+        <span style="color:#7CFC00;font-weight:bold;">1번선</span>
+        <button class="btn-reset" onclick="nudgeLine(1, -1)">▲</button>
+        <button class="btn-reset" onclick="nudgeLine(1, 1)">▼</button>
+        <span style="color:#00E5FF;font-weight:bold;margin-left:4px;">40번선</span>
+        <button class="btn-reset" onclick="nudgeLine(40, -1)">▲</button>
+        <button class="btn-reset" onclick="nudgeLine(40, 1)">▼</button>
+        <span style="color:#FFA500;font-weight:bold;margin-left:4px;">80번선</span>
+        <button class="btn-reset" onclick="nudgeLine(80, -1)">▲</button>
+        <button class="btn-reset" onclick="nudgeLine(80, 1)">▼</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="help-bar">
+    순서: [✂️ MLC 영역 크롭] → 1차 [🔵 2점 정렬(좌·우 파란선)] → 2차 [📍 6점 롤+스트레치 정렬] (40번 좌·우 → 1번 좌·우 → 80번 좌·우, 6x 돋보기 지원)
+  </div>
+
+  <div class="result-bar" id="lblResult">
+    이미지를 불러온 뒤 크롭하고, 1차 [🔵 2점 정렬(좌·우 파란선)] 후 2차 [📍 6점 롤+스트레치 정렬]을 진행하세요.
+  </div>
+
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="mainCanvas"></canvas>
+  </div>
+
+  <script>
+    const BLUE_LINE = "#1d63ff";
+
+    const state = {
+      img: null,
+      cropNorm: null,
+      cx: 550,
+      cy: 340,
+      dispW: 500,
+      dispH: 420,
+      angleDeg: 0,
+      leftStretch: 1.0,
+      rightStretch: 1.0,
+      cropMode: false,
+      cropStart: null,
+      cropRect: null,
+      twoPointMode: false,
+      twoPointSamples: [],
+      twoPointLine: null,
+      sixPointMode: false,
+      sixPointSamples: [],
+      hoverPos: null,
+      line1Y: null,
+      line40Y: null,
+      line80Y: null,
+      selected: true,
+      activeMode: null,
+      dragLastX: 0,
+      dragLastY: 0,
+      lastDetections: []
+    };
+
+    const twoPointSteps = [
+      ["L_BLUE", "1차 1/2: 좌측 파란색 기준선 포인트 클릭/터치", BLUE_LINE],
+      ["R_BLUE", "1차 2/2: 우측 파란색 기준선 포인트 클릭/터치", BLUE_LINE]
+    ];
+
+    const sixPointSteps = [
+      ["40L", "2차 1/6: 40번 Leaf 좌측(Y2) 리플렉터 선택", "#00e5ff"],
+      ["40R", "2차 2/6: 40번 Leaf 우측(Y1) 리플렉터 선택", "#00e5ff"],
+      ["1L",  "2차 3/6: 1번 Leaf 좌측(Y2) 리플렉터 선택",  "#00ff00"],
+      ["1R",  "2차 4/6: 1번 Leaf 우측(Y1) 리플렉터 선택",  "#00ff00"],
+      ["80L", "2차 5/6: 80번 Leaf 좌측(Y2) 리플렉터 선택", "#ffa500"],
+      ["80R", "2차 6/6: 80번 Leaf 우측(Y1) 리플렉터 선택", "#ffa500"]
+    ];
+
+    const canvas = document.getElementById("mainCanvas");
+    const ctx = canvas.getContext("2d");
+    const wrap = document.getElementById("canvasWrap");
+    const lblResult = document.getElementById("lblResult");
+    const fileInput = document.getElementById("fileInput");
+
+    const offCanvas = document.createElement("canvas");
+    const offCtx = offCanvas.getContext("2d", { willReadFrequently: true });
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    function resizeCanvas() {
+      const rect = wrap.getBoundingClientRect();
+      const cw = Math.max(300, Math.floor(rect.width));
+      const ch = Math.max(360, Math.floor(window.innerHeight - rect.top - 12));
+      wrap.style.height = ch + "px";
+      if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw;
+        canvas.height = ch;
+        if (state.line1Y === null) {
+          setDefaultGuideLines(ch);
+          computeResetTransform();
+        }
+        render(false);
+      }
+    }
+
+    function setDefaultGuideLines(ch) {
+      const l1 = ch * 0.14;
+      const l80 = ch * 0.84;
+      const l40 = l1 + (l80 - l1) * (39.0 / 79.0);
+      state.line1Y = l1;
+      state.line40Y = l40;
+      state.line80Y = l80;
+    }
+
+    function getGuideLines() {
+      const ch = canvas.height || 600;
+      if (state.line1Y === null) setDefaultGuideLines(ch);
+      const l1 = clamp(state.line1Y, 12, ch - 90);
+      const l80 = clamp(state.line80Y, l1 + 50, ch - 12);
+      const l40 = clamp(state.line40Y, l1 + 15, l80 - 15);
+      state.line1Y = l1;
+      state.line40Y = l40;
+      state.line80Y = l80;
+      return [l1, l40, l80];
+    }
+
+    function leafSlotToY(slot) {
+      const [l1, l40, l80] = getGuideLines();
+      if (slot <= 40.0) return l1 + ((slot - 1.0) / 39.0) * (l40 - l1);
+      return l40 + ((slot - 40.0) / 40.0) * (l80 - l40);
+    }
+
+    function yToLeafSlot(y) {
+      const [l1, l40, l80] = getGuideLines();
+      if (y <= l40) return 1.0 + ((y - l1) / Math.max(1e-6, l40 - l1)) * 39.0;
+      return 40.0 + ((y - l40) / Math.max(1e-6, l80 - l40)) * 40.0;
+    }
+
+    function nudgeLine(which, delta) {
+      const [l1, l40, l80] = getGuideLines();
+      if (which === 1) state.line1Y = l1 + delta;
+      else if (which === 40) state.line40Y = l40 + delta;
+      else state.line80Y = l80 + delta;
+      getGuideLines();
+      analyze();
+    }
+
+    function getActiveSourceRect() {
+      if (!state.img) return null;
+      const w = state.img.naturalWidth || state.img.width;
+      const h = state.img.naturalHeight || state.img.height;
+      if (!state.cropNorm) return { sx: 0, sy: 0, sw: w, sh: h };
+      const [u1, v1, u2, v2] = state.cropNorm;
+      const sx = clamp(Math.floor(u1 * w), 0, w - 2);
+      const sy = clamp(Math.floor(v1 * h), 0, h - 2);
+      const sw = clamp(Math.ceil((u2 - u1) * w), 2, w - sx);
+      const sh = clamp(Math.ceil((v2 - v1) * h), 2, h - sy);
+      return { sx, sy, sw, sh };
+    }
+
+    function computeResetTransform() {
+      const src = getActiveSourceRect();
+      if (!src) {
+        state.angleDeg = 0;
+        syncAngleUI();
+        return;
+      }
+      const cw = canvas.width || 1100;
+      const [topY, , botY] = getGuideLines();
+      const targetH = Math.max(120, (botY - topY) * 1.05);
+      const aspect = src.sw / Math.max(1, src.sh);
+      state.dispH = targetH;
+      state.dispW = targetH * aspect;
+      state.cx = cw / 2.0;
+      state.cy = (topY + botY) / 2.0;
+      state.angleDeg = 0;
+      syncAngleUI();
+    }
+
+    function syncStretchUI() {
+      document.getElementById("rngLeft").value = state.leftStretch.toFixed(2);
+      document.getElementById("lblLeft").textContent = state.leftStretch.toFixed(2) + "x";
+      document.getElementById("rngRight").value = state.rightStretch.toFixed(2);
+      document.getElementById("lblRight").textContent = state.rightStretch.toFixed(2) + "x";
+    }
+
+    function syncAngleUI() {
+      document.getElementById("lblRoll").textContent = (state.angleDeg >= 0 ? "+" : "") + state.angleDeg.toFixed(2) + "°";
+      document.getElementById("inpRoll").value = state.angleDeg.toFixed(2);
+    }
+
+    function matVec3(M, x, y) {
+      const w = M[2][0] * x + M[2][1] * y + M[2][2];
+      const denom = Math.abs(w) < 1e-9 ? 1e-9 : w;
+      return [(M[0][0] * x + M[0][1] * y + M[0][2]) / denom,
+              (M[1][0] * x + M[1][1] * y + M[1][2]) / denom];
+    }
+
+    function solveLinear8(A, b) {
+      const n = 8;
+      const M = A.map((row, i) => [...row, b[i]]);
+      for (let col = 0; col < n; col++) {
+        let pivot = col;
+        for (let r = col + 1; r < n; r++) {
+          if (Math.abs(M[r][col]) > Math.abs(M[pivot][col])) pivot = r;
+        }
+        [M[col], M[pivot]] = [M[pivot], M[col]];
+        if (Math.abs(M[col][col]) < 1e-12) continue;
+        const div = M[col][col];
+        for (let c = col; c <= n; c++) M[col][c] /= div;
+        for (let r = 0; r < n; r++) {
+          if (r === col) continue;
+          const factor = M[r][col];
+          for (let c = col; c <= n; c++) M[r][c] -= factor * M[col][c];
+        }
+      }
+      return M.map(row => row[n]);
+    }
+
+    function computeSrcToCanvasHomography(sw, sh) {
+      const hw = state.dispW / 2.0;
+      const hh = state.dispH / 2.0;
+      const ls = state.leftStretch;
+      const rs = state.rightStretch;
+
+      const srcPts = [[0, 0], [sw, 0], [sw, sh], [0, sh]];
+      const localPts = [
+        [-hw, -hh * ls],
+        [hw, -hh * rs],
+        [hw, hh * rs],
+        [-hw, hh * ls]
+      ];
+      const rad = (state.angleDeg * Math.PI) / 180.0;
+      const cosA = Math.cos(rad);
+      const sinA = Math.sin(rad);
+      const dstPts = localPts.map(([lx, ly]) => [
+        lx * cosA - ly * sinA + state.cx,
+        lx * sinA + ly * cosA + state.cy
+      ]);
+
+      const A = [];
+      const B = [];
+      for (let i = 0; i < 4; i++) {
+        const [x, y] = srcPts[i];
+        const [u, v] = dstPts[i];
+        A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
+        B.push(u);
+        A.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
+        B.push(v);
+      }
+      const h = solveLinear8(A, B);
+      return [
+        [h[0], h[1], h[2]],
+        [h[3], h[4], h[5]],
+        [h[6], h[7], 1.0]
+      ];
+    }
+
+    function invertMat3(M) {
+      const a = M[0][0], b = M[0][1], c = M[0][2];
+      const d = M[1][0], e = M[1][1], f = M[1][2];
+      const g = M[2][0], h = M[2][1], k = M[2][2];
+
+      const A = e * k - f * h;
+      const B = -(d * k - f * g);
+      const C = d * h - e * g;
+      const D = -(b * k - c * h);
+      const E = a * k - c * g;
+      const F = -(a * h - b * g);
+      const G = b * f - c * e;
+      const H = -(a * f - c * d);
+      const K = a * e - b * d;
+
+      const det = a * A + b * B + c * C;
+      if (Math.abs(det) < 1e-12) return null;
+      return [
+        [A / det, D / det, G / det],
+        [B / det, E / det, H / det],
+        [C / det, F / det, K / det]
+      ];
+    }
+
+    function rotatePoint(lx, ly, angleDeg) {
+      const rad = (angleDeg * Math.PI) / 180.0;
+      const cosA = Math.cos(rad);
+      const sinA = Math.sin(rad);
+      return [
+        state.cx + (lx * cosA - ly * sinA),
+        state.cy + (lx * sinA + ly * cosA)
+      ];
+    }
+
+    function inverseRotatePoint(px, py, angleDeg) {
+      const rad = (-angleDeg * Math.PI) / 180.0;
+      const cosA = Math.cos(rad);
+      const sinA = Math.sin(rad);
+      const dx = px - state.cx;
+      const dy = py - state.cy;
+      return [dx * cosA - dy * sinA, dx * sinA + dy * cosA];
+    }
+
+    function getHandles() {
+      const hw = state.dispW / 2.0;
+      const hh = state.dispH / 2.0;
+      return {
+        tl: rotatePoint(-hw, -hh, state.angleDeg),
+        tr: rotatePoint(hw, -hh, state.angleDeg),
+        br: rotatePoint(hw, hh, state.angleDeg),
+        bl: rotatePoint(-hw, hh, state.angleDeg),
+        topMid: rotatePoint(0, -hh, state.angleDeg),
+        rotTop: rotatePoint(0, -hh - 34, state.angleDeg)
+      };
+    }
+
+    function stretchFromCorner(cornerKey, mx, my) {
+      const hw = state.dispW / 2.0;
+      const hh = state.dispH / 2.0;
+      const oppMap = {
+        tl: [hw, hh, false, false],
+        tr: [-hw, hh, true, false],
+        br: [-hw, -hh, true, true],
+        bl: [hw, -hh, false, true]
+      };
+      if (!oppMap[cornerKey]) return;
+      const [oppLx, oppLy, stretchRight, stretchDown] = oppMap[cornerKey];
+      const [anchorX, anchorY] = rotatePoint(oppLx, oppLy, state.angleDeg);
+
+      const dxC = mx - anchorX;
+      const dyC = my - anchorY;
+      const radInv = (-state.angleDeg * Math.PI) / 180.0;
+      const cosI = Math.cos(radInv);
+      const sinI = Math.sin(radInv);
+      const u = dxC * cosI - dyC * sinI;
+      const v = dxC * sinI + dyC * cosI;
+
+      const newW = Math.max(60.0, stretchRight ? u : -u);
+      const newH = Math.max(60.0, stretchDown ? v : -v);
+
+      const offLx = stretchRight ? newW / 2.0 : -newW / 2.0;
+      const offLy = stretchDown ? newH / 2.0 : -newH / 2.0;
+
+      const rad = (state.angleDeg * Math.PI) / 180.0;
+      const cosA = Math.cos(rad);
+      const sinA = Math.sin(rad);
+
+      state.dispW = newW;
+      state.dispH = newH;
+      state.cx = anchorX + (offLx * cosA - offLy * sinA);
+      state.cy = anchorY + (offLx * sinA + offLy * cosA);
+    }
+
+    function drawWarpedSourceImage() {
+      const src = getActiveSourceRect();
+      if (!src) return;
+
+      offCanvas.width = src.sw;
+      offCanvas.height = src.sh;
+      offCtx.clearRect(0, 0, src.sw, src.sh);
+      offCtx.drawImage(state.img, src.sx, src.sy, src.sw, src.sh, 0, 0, src.sw, src.sh);
+
+      const M = computeSrcToCanvasHomography(src.sw, src.sh);
+      const M_inv = invertMat3(M);
+      if (!M_inv) return;
+
+      const corners = [
+        matVec3(M, 0, 0),
+        matVec3(M, src.sw, 0),
+        matVec3(M, src.sw, src.sh),
+        matVec3(M, 0, src.sh)
+      ];
+      const bx1 = clamp(Math.floor(Math.min(...corners.map(p => p[0]))), 0, canvas.width);
+      const by1 = clamp(Math.floor(Math.min(...corners.map(p => p[1]))), 0, canvas.height);
+      const bx2 = clamp(Math.ceil(Math.max(...corners.map(p => p[0]))), 0, canvas.width);
+      const by2 = clamp(Math.ceil(Math.max(...corners.map(p => p[1]))), 0, canvas.height);
+
+      const bw = bx2 - bx1;
+      const bh = by2 - by1;
+      if (bw <= 0 || bh <= 0) return;
+
+      const srcData = offCtx.getImageData(0, 0, src.sw, src.sh);
+      const sPixels = srcData.data;
+      const patchImg = ctx.createImageData(bw, bh);
+      const dPixels = patchImg.data;
+
+      for (let py = 0; py < bh; py++) {
+        const cy = by1 + py + 0.5;
+        for (let px = 0; px < bw; px++) {
+          const cx = bx1 + px + 0.5;
+          const [sxFloat, syFloat] = matVec3(M_inv, cx, cy);
+          if (sxFloat < 0 || syFloat < 0 || sxFloat >= src.sw - 1 || syFloat >= src.sh - 1) continue;
+
+          const x0 = Math.floor(sxFloat);
+          const y0 = Math.floor(syFloat);
+          const fx = sxFloat - x0;
+          const fy = syFloat - y0;
+
+          const idx00 = (y0 * src.sw + x0) * 4;
+          const idx10 = (y0 * src.sw + (x0 + 1)) * 4;
+          const idx01 = ((y0 + 1) * src.sw + x0) * 4;
+          const idx11 = ((y0 + 1) * src.sw + (x0 + 1)) * 4;
+
+          const dIdx = (py * bw + px) * 4;
+          for (let c = 0; c < 3; c++) {
+            const top = sPixels[idx00 + c] * (1 - fx) + sPixels[idx10 + c] * fx;
+            const bot = sPixels[idx01 + c] * (1 - fx) + sPixels[idx11 + c] * fx;
+            dPixels[dIdx + c] = Math.round(top * (1 - fy) + bot * fy);
+          }
+          dPixels[dIdx + 3] = 255;
+        }
+      }
+
+      ctx.putImageData(patchImg, bx1, by1);
+    }
+
+    function drawGuideLines() {
+      if (state.sixPointMode) return;
+
+      const cw = canvas.width;
+      const ch = canvas.height;
+      const [topY, midY, botY] = getGuideLines();
+
+      for (let leafIdx = 1; leafIdx <= 80; leafIdx++) {
+        const yPos = Math.round(leafSlotToY(leafIdx));
+        if (leafIdx === 1 || leafIdx === 40 || leafIdx === 80) continue;
+
+        ctx.save();
+        if (leafIdx % 10 === 0) {
+          ctx.strokeStyle = "rgba(130,130,130,0.65)";
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(0, yPos); ctx.lineTo(cw, yPos); ctx.stroke();
+
+          ctx.strokeStyle = "#00ffff";
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(cw - 24, yPos); ctx.lineTo(cw, yPos); ctx.stroke();
+
+          ctx.fillStyle = "#00ffff";
+          ctx.font = "12px Consolas";
+          ctx.fillText(String(leafIdx), cw - 52, yPos + 4);
+        } else if (leafIdx % 5 === 0) {
+          ctx.strokeStyle = "#c8c8c8";
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(cw - 16, yPos); ctx.lineTo(cw, yPos); ctx.stroke();
+
+          ctx.fillStyle = "#c8c8c8";
+          ctx.font = "11px Consolas";
+          ctx.fillText(String(leafIdx), cw - 44, yPos + 4);
+        } else {
+          ctx.strokeStyle = "#78dc78";
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(cw - 8, yPos); ctx.lineTo(cw, yPos); ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      const drawMainLine = (yVal, color, label, below) => {
+        const yi = Math.round(yVal);
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, yi); ctx.lineTo(cw, yi); ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.font = "bold 13px Consolas";
+        ctx.fillText(`${label} (Y=${yi})`, 14, below ? Math.min(ch - 10, yi + 18) : Math.max(18, yi - 8));
+        ctx.restore();
+      };
+
+      drawMainLine(topY, "#00ff00", "LEAF #1 LINE", false);
+      drawMainLine(midY, "#00e5ff", "LEAF #40 LINE", false);
+      drawMainLine(botY, "#ffa500", "LEAF #80 LINE", true);
+    }
+
+    function drawHandles() {
+      if (!state.img || !state.selected || state.cropMode || state.twoPointMode || state.sixPointMode) return;
+      const h = getHandles();
+      ctx.save();
+      ctx.strokeStyle = "#00c8ff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(h.tl[0], h.tl[1]);
+      ctx.lineTo(h.tr[0], h.tr[1]);
+      ctx.lineTo(h.br[0], h.br[1]);
+      ctx.lineTo(h.bl[0], h.bl[1]);
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.strokeStyle = "#00ffff";
+      ctx.beginPath(); ctx.moveTo(h.topMid[0], h.topMid[1]); ctx.lineTo(h.rotTop[0], h.rotTop[1]); ctx.stroke();
+
+      ctx.fillStyle = "#00ffff";
+      ctx.beginPath(); ctx.arc(h.rotTop[0], h.rotTop[1], 8, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#141414";
+      ctx.stroke();
+
+      for (const pt of [h.tl, h.tr, h.br, h.bl]) {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(pt[0] - 7, pt[1] - 7, 14, 14);
+        ctx.strokeStyle = "#ff8c00";
+        ctx.strokeRect(pt[0] - 7, pt[1] - 7, 14, 14);
+      }
+      ctx.restore();
+    }
+
+    function drawCropBox() {
+      if (!state.cropMode) return;
+      ctx.save();
+
+      if (!state.cropRect && state.hoverPos) {
+        const [hx, hy] = state.hoverPos;
+        ctx.strokeStyle = "rgba(255, 64, 192, 0.55)";
+        ctx.setLineDash([5, 5]);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(hx, 0); ctx.lineTo(hx, canvas.height);
+        ctx.moveTo(0, hy); ctx.lineTo(canvas.width, hy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = "#ff40c0";
+        ctx.font = "bold 13px Consolas";
+        ctx.fillText("DRAG START HERE", clamp(hx + 10, 12, canvas.width - 150), clamp(hy - 10, 20, canvas.height - 12));
+      }
+
+      if (state.cropRect) {
+        const [x1, y1, x2, y2] = state.cropRect;
+        const left = Math.min(x1, x2), top = Math.min(y1, y2);
+        const w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+
+        ctx.fillStyle = "#ff40c0";
+        ctx.beginPath(); ctx.arc(x1, y1, 5, 0, Math.PI * 2); ctx.fill();
+
+        ctx.strokeStyle = "#ff00ff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(left, top, w, h);
+
+        ctx.fillStyle = "#ff00ff";
+        ctx.font = "bold 13px Consolas";
+        ctx.fillText(`START (${Math.round(x1)},${Math.round(y1)})  ${Math.round(w)}x${Math.round(h)}`, left, Math.max(18, top - 8));
+      }
+      ctx.restore();
+    }
+
+    function drawPointMarkers() {
+      ctx.save();
+      if (state.twoPointSamples.length > 0) {
+        for (const [key, , px, py] of state.twoPointSamples) {
+          ctx.fillStyle = BLUE_LINE;
+          ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI * 2); ctx.fill();
+          ctx.font = "12px Consolas";
+          ctx.fillText(key, px + 6, py - 5);
+        }
+        if (state.twoPointSamples.length >= 2) {
+          const p1 = state.twoPointSamples[0];
+          const p2 = state.twoPointSamples[1];
+          ctx.strokeStyle = BLUE_LINE;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(p1[2], p1[3]); ctx.lineTo(p2[2], p2[3]); ctx.stroke();
+        }
+      } else if (state.twoPointLine) {
+        const [[x1, y1], [x2, y2]] = state.twoPointLine;
+        ctx.fillStyle = BLUE_LINE;
+        ctx.beginPath(); ctx.arc(x1, y1, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x2, y2, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = BLUE_LINE;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        ctx.font = "11px Consolas";
+        ctx.fillText("2PT LINE", x1 + 6, y1 - 5);
+      }
+
+      const mapByKey = {};
+      for (const [key, color, px, py] of state.sixPointSamples) {
+        mapByKey[key] = [px, py, color];
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(px, py, 3.5, 0, Math.PI * 2); ctx.fill();
+        ctx.font = "12px Consolas";
+        ctx.fillText(key, px + 7, py - 5);
+      }
+      for (const [lk, rk] of [["40L", "40R"], ["1L", "1R"], ["80L", "80R"]]) {
+        if (mapByKey[lk] && mapByKey[rk]) {
+          ctx.strokeStyle = mapByKey[lk][2];
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(mapByKey[lk][0], mapByKey[lk][1]);
+          ctx.lineTo(mapByKey[rk][0], mapByKey[rk][1]);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawDetections() {
+      if (state.sixPointMode) return;
+      const cw = canvas.width;
+      ctx.save();
+      for (const det of state.lastDetections) {
+        ctx.strokeStyle = "#00ffff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(det.x - 4, det.y - 4, det.w + 8, det.h + 8);
+        ctx.beginPath(); ctx.moveTo(0, det.cy); ctx.lineTo(cw, det.cy); ctx.stroke();
+
+        const tagX = det.isLeft
+          ? clamp(det.x + 22, 95, cw - 170)
+          : clamp(det.x - 170, 95, cw - 170);
+        ctx.fillStyle = "#00ffff";
+        ctx.font = "bold 15px Consolas";
+        ctx.fillText(`${det.shortLabel} #${det.leafNum}`, tagX, det.cy - 7);
+      }
+      ctx.restore();
+    }
+
+    function drawLoupe() {
+      if (!state.twoPointMode && !state.sixPointMode) return;
+      const samples = state.twoPointMode ? state.twoPointSamples : state.sixPointSamples;
+      const steps = state.twoPointMode ? twoPointSteps : sixPointSteps;
+      const target = state.hoverPos || (samples.length ? [samples[samples.length - 1][2], samples[samples.length - 1][3]] : null);
+      if (!target) return;
+
+      const [px, py] = target;
+      const zoom = 6.0;
+      const loupeSize = 240;
+      const radiusMult = 1.5;
+      const srcHalf = Math.max(10, Math.round(((loupeSize / zoom) / 2.0) * radiusMult));
+
+      const sx = Math.round(px - srcHalf);
+      const sy = Math.round(py - srcHalf);
+      const sSize = srcHalf * 2;
+
+      const stepIdx = Math.min(samples.length, steps.length - 1);
+      const [stepKey, , stepColor] = steps[stepIdx];
+
+      const lx = px + loupeSize + 28 > canvas.width - 12 ? Math.max(12, px - loupeSize - 28) : px + 28;
+      const ly = py + loupeSize + 24 > canvas.height - 12 ? Math.max(36, py - loupeSize - 28) : py + 28;
+
+      ctx.save();
+      ctx.fillStyle = "#181818";
+      ctx.fillRect(lx, ly, loupeSize, loupeSize);
+      ctx.drawImage(canvas, sx, sy, sSize, sSize, lx, ly, loupeSize, loupeSize);
+
+      const midX = lx + loupeSize / 2;
+      const midY = ly + loupeSize / 2;
+      ctx.strokeStyle = "#ffff00";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(midX - 18, midY); ctx.lineTo(midX + 18, midY);
+      ctx.moveTo(midX, midY - 18); ctx.lineTo(midX, midY + 18);
+      ctx.stroke();
+
+      ctx.strokeStyle = stepColor;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(lx, ly, loupeSize, loupeSize);
+
+      ctx.fillStyle = "#1e1e1e";
+      ctx.fillRect(lx, ly - 24, loupeSize, 24);
+      ctx.strokeRect(lx, ly - 24, loupeSize, 24);
+      ctx.fillStyle = stepColor;
+      ctx.font = "bold 13px Consolas";
+      ctx.fillText(`ZOOM 6x [${stepKey}]`, lx + 10, ly - 7);
+      ctx.restore();
+    }
+
+    function render(runDetection = false) {
+      ctx.fillStyle = "#121212";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      if (state.img) {
+        drawWarpedSourceImage();
+      }
+      drawGuideLines();
+      drawHandles();
+      drawCropBox();
+      drawPointMarkers();
+      if (runDetection) {
+        detectRedMarkers();
+      }
+      drawDetections();
+      drawLoupe();
+    }
+
+    function rgbToOpenCvHsv(r, g, b) {
+      const rf = r / 255, gf = g / 255, bf = b / 255;
+      const maxC = Math.max(rf, gf, bf);
+      const minC = Math.min(rf, gf, bf);
+      const delta = maxC - minC;
+
+      let h = 0;
+      if (delta > 1e-6) {
+        if (maxC === rf) h = 60 * (((gf - bf) / delta) % 6);
+        else if (maxC === gf) h = 60 * ((bf - rf) / delta + 2);
+        else h = 60 * ((rf - gf) / delta + 4);
+      }
+      if (h < 0) h += 360;
+      const hCv = h / 2.0;
+      const sCv = maxC < 1e-6 ? 0 : (delta / maxC) * 255.0;
+      const vCv = maxC * 255.0;
+      return [hCv, sCv, vCv];
+    }
+
+    function detectRedMarkers() {
+      state.lastDetections = [];
+      if (!state.img) return;
+
+      const cw = canvas.width;
+      const ch = canvas.height;
+      const [topY, , botY] = getGuideLines();
+      const avgStep = Math.max(1.0, (botY - topY) / 79.0);
+
+      const hPts = getHandles();
+      const imgX1 = clamp(Math.round(Math.min(hPts.tl[0], hPts.bl[0])), 0, cw);
+      const imgX2 = clamp(Math.round(Math.max(hPts.tr[0], hPts.br[0])), 0, cw);
+      const spanW = Math.max(40, imgX2 - imgX1);
+
+      const leftRx1 = imgX1;
+      const leftRx2 = clamp(imgX1 + Math.floor(spanW * 0.42), 0, cw);
+      const rightRx1 = clamp(imgX2 - Math.floor(spanW * 0.42), 0, cw);
+      const rightRx2 = imgX2;
+
+      const yMin = clamp(Math.round(topY - avgStep * 2), 0, ch);
+      const yMax = clamp(Math.round(botY + avgStep * 2), 0, ch);
+      if (yMax <= yMin || imgX2 <= imgX1) {
+        lblResult.style.color = "#4ec9b0";
+        lblResult.textContent = "✅ 1~40~80번 기준선 구간 좌/우에서 빨간 마커가 감지되지 않았습니다.";
+        return;
+      }
+
+      const imgData = ctx.getImageData(0, yMin, cw, yMax - yMin);
+      const px = imgData.data;
+      const hSub = yMax - yMin;
+      const mask = new Uint8Array(cw * hSub);
+
+      for (let ry = 0; ry < hSub; ry++) {
+        for (let x = 0; x < cw; x++) {
+          const inLeft = x >= leftRx1 && x < leftRx2;
+          const inRight = x >= rightRx1 && x < rightRx2;
+          if (!inLeft && !inRight) continue;
+
+          const idx = (ry * cw + x) * 4;
+          const [hCv, sCv, vCv] = rgbToOpenCvHsv(px[idx], px[idx + 1], px[idx + 2]);
+          const isRed = ((hCv <= 15 || hCv >= 162) && sCv >= 95 && vCv >= 80);
+          if (isRed) {
+            mask[ry * cw + x] = 1;
+          }
+        }
+      }
+
+      const visited = new Uint8Array(cw * hSub);
+      const detected = [];
+
+      const scanRegion = (rx1, rx2, sideLabel, shortLabel, isLeft) => {
+        for (let ry = 0; ry < hSub; ry++) {
+          for (let x = rx1; x < rx2; x++) {
+            const startIdx = ry * cw + x;
+            if (!mask[startIdx] || visited[startIdx]) continue;
+
+            const queue = [startIdx];
+            visited[startIdx] = 1;
+            let area = 0;
+            let minX = x, maxX = x, minY = ry, maxY = ry;
+
+            for (let qHead = 0; qHead < queue.length; qHead++) {
+              const cur = queue[qHead];
+              const cyLocal = Math.floor(cur / cw);
+              const cxLocal = cur % cw;
+              area++;
+              if (cxLocal < minX) minX = cxLocal;
+              if (cxLocal > maxX) maxX = cxLocal;
+              if (cyLocal < minY) minY = cyLocal;
+              if (cyLocal > maxY) maxY = cyLocal;
+
+              const neighbors = [
+                [cxLocal - 1, cyLocal],
+                [cxLocal + 1, cyLocal],
+                [cxLocal, cyLocal - 1],
+                [cxLocal, cyLocal + 1]
+              ];
+              for (const [nx, ny] of neighbors) {
+                if (nx < rx1 || nx >= rx2 || ny < 0 || ny >= hSub) continue;
+                const nIdx = ny * cw + nx;
+                if (mask[nIdx] && !visited[nIdx]) {
+                  visited[nIdx] = 1;
+                  queue.push(nIdx);
+                }
+              }
+            }
+
+            if (area >= 3) {
+              const bw = maxX - minX + 1;
+              const bh = maxY - minY + 1;
+              const cyCanvas = yMin + minY + bh / 2.0;
+              const leafNum = clamp(Math.round(yToLeafSlot(cyCanvas)), 1, 80);
+              detected.push([sideLabel, leafNum]);
+              state.lastDetections.push({
+                x: minX,
+                y: yMin + minY,
+                w: bw,
+                h: bh,
+                cy: Math.round(cyCanvas),
+                shortLabel,
+                leafNum,
+                isLeft
+              });
+            }
+          }
+        }
+      };
+
+      scanRegion(leftRx1, leftRx2, "Y2 (좌측)", "Y2", true);
+      scanRegion(rightRx1, rightRx2, "Y1 (우측)", "Y1", false);
+
+      if (detected.length > 0) {
+        const seen = new Set();
+        const items = [];
+        for (const [s, n] of detected) {
+          const key = `${s}|${n}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            items.push(`[${s}] ${n}번 Leaf`);
+          }
+        }
+        lblResult.style.color = "#ff5555";
+        lblResult.textContent = " ⚠️ 감지됨: " + items.join("  |  ");
+      } else {
+        lblResult.style.color = "#4ec9b0";
+        lblResult.textContent = "✅ 1~40~80번 기준선 구간 좌/우에서 빨간 마커가 감지되지 않았습니다.";
+      }
+    }
+
+    function analyze() {
+      if (!state.img) {
+        render(false);
+        return;
+      }
+      render(true);
+    }
+
+    function setModeButtons() {
+      document.getElementById("btnCrop").classList.toggle("btn-active", state.cropMode);
+      document.getElementById("btnTwo").classList.toggle("btn-active", state.twoPointMode);
+      document.getElementById("btnSix").classList.toggle("btn-active", state.sixPointMode);
+    }
+
+    function clearSubModes() {
+      state.cropMode = false;
+      state.cropStart = null;
+      state.cropRect = null;
+      state.twoPointMode = false;
+      state.twoPointSamples = [];
+      state.sixPointMode = false;
+      state.sixPointSamples = [];
+      state.hoverPos = null;
+      setModeButtons();
+    }
+
+    document.getElementById("btnLoad").addEventListener("click", () => fileInput.click());
+
+    fileInput.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          state.img = img;
+          state.cropNorm = null;
+          state.twoPointLine = null;
+          state.leftStretch = 1.0;
+          state.rightStretch = 1.0;
+          syncStretchUI();
+          clearSubModes();
+          setDefaultGuideLines(canvas.height);
+          computeResetTransform();
+          analyze();
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+      fileInput.value = "";
+    });
+
+    document.getElementById("btnCrop").addEventListener("click", () => {
+      if (!state.img) return alert("먼저 이미지를 불러와 주세요.");
+      const next = !state.cropMode;
+      clearSubModes();
+      state.cropMode = next;
+      setModeButtons();
+      if (state.cropMode) {
+        lblResult.style.color = "#ff80ab";
+        lblResult.textContent = " ✂️ 크롭 모드: 시작 지점을 누른 채 끝점까지 드래그하세요. (누르는 순간 시작점이 고정됩니다)";
+      } else {
+        analyze();
+      }
+      render(false);
+    });
+
+    document.getElementById("btnTwo").addEventListener("click", () => {
+      if (!state.img) return alert("먼저 이미지를 불러와 주세요.");
+      const next = !state.twoPointMode;
+      clearSubModes();
+      state.twoPointMode = next;
+      setModeButtons();
+      if (state.twoPointMode) {
+        lblResult.style.color = "#80d8ff";
+        lblResult.textContent = " 🔵 " + twoPointSteps[0][1];
+      } else {
+        analyze();
+      }
+      render(false);
+    });
+
+    document.getElementById("btnSix").addEventListener("click", () => {
+      if (!state.img) return alert("먼저 이미지를 불러와 주세요.");
+      const next = !state.sixPointMode;
+      clearSubModes();
+      state.sixPointMode = next;
+      setModeButtons();
+      if (state.sixPointMode) {
+        lblResult.style.color = "#ffd54f";
+        lblResult.textContent = " 📍 " + sixPointSteps[0][1];
+      } else {
+        analyze();
+      }
+      render(false);
+    });
+
+    document.getElementById("btnRestore").addEventListener("click", () => {
+      if (!state.img) return;
+      state.cropNorm = null;
+      state.twoPointLine = null;
+      state.leftStretch = 1.0;
+      state.rightStretch = 1.0;
+      syncStretchUI();
+      clearSubModes();
+      computeResetTransform();
+      analyze();
+    });
+
+    document.getElementById("btnReset").addEventListener("click", () => {
+      setDefaultGuideLines(canvas.height);
+      state.leftStretch = 1.0;
+      state.rightStretch = 1.0;
+      syncStretchUI();
+      state.twoPointLine = null;
+      clearSubModes();
+      computeResetTransform();
+      analyze();
+    });
+
+    document.getElementById("btnAnalyze").addEventListener("click", () => analyze());
+
+    function stepStretch(side, delta) {
+      if (side === "left") state.leftStretch = clamp(+(state.leftStretch + delta).toFixed(2), 0.70, 1.80);
+      else state.rightStretch = clamp(+(state.rightStretch + delta).toFixed(2), 0.70, 1.80);
+      syncStretchUI();
+      analyze();
+    }
+
+    document.getElementById("btnLeftMinus").addEventListener("click", () => stepStretch("left", -0.02));
+    document.getElementById("btnLeftPlus").addEventListener("click", () => stepStretch("left", 0.02));
+    document.getElementById("btnRightMinus").addEventListener("click", () => stepStretch("right", -0.02));
+    document.getElementById("btnRightPlus").addEventListener("click", () => stepStretch("right", 0.02));
+
+    document.getElementById("rngLeft").addEventListener("input", (e) => {
+      state.leftStretch = parseFloat(e.target.value);
+      syncStretchUI();
+      render(false);
+    });
+    document.getElementById("rngLeft").addEventListener("change", () => analyze());
+
+    document.getElementById("rngRight").addEventListener("input", (e) => {
+      state.rightStretch = parseFloat(e.target.value);
+      syncStretchUI();
+      render(false);
+    });
+    document.getElementById("rngRight").addEventListener("change", () => analyze());
+
+    function stepRoll(delta) {
+      state.angleDeg = +(state.angleDeg + delta).toFixed(4);
+      syncAngleUI();
+      analyze();
+    }
+    document.getElementById("btnRollMinus").addEventListener("click", () => stepRoll(-0.02));
+    document.getElementById("btnRollPlus").addEventListener("click", () => stepRoll(0.02));
+    document.getElementById("btnRollApply").addEventListener("click", () => {
+      const v = parseFloat(document.getElementById("inpRoll").value);
+      if (Number.isNaN(v) || Math.abs(v) > 180) {
+        return alert("-180.00 ~ +180.00 사이의 숫자를 입력해 주세요.");
+      }
+      state.angleDeg = +v.toFixed(4);
+      syncAngleUI();
+      analyze();
+    });
+
+    function applyTwoPointAlignment() {
+      const [, , x1, y1] = state.twoPointSamples[0];
+      const [, , x2, y2] = state.twoPointSamples[1];
+      state.twoPointLine = [[x1, y1], [x2, y2]];
+
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const tiltDeg = Math.abs(dx) < 1e-6 ? 0.0 : (Math.atan2(dy, dx) * 180.0) / Math.PI;
+      state.angleDeg = +(state.angleDeg - tiltDeg).toFixed(4);
+      syncAngleUI();
+
+      state.twoPointMode = false;
+      state.twoPointSamples = [];
+      state.hoverPos = null;
+      setModeButtons();
+      analyze();
+      lblResult.style.color = "#ffd54f";
+      lblResult.textContent = ` 🔵 1차 2점 보정 완료 (롤 ${(-tiltDeg >= 0 ? "+" : "") + (-tiltDeg).toFixed(2)}° → 누적 ${(state.angleDeg >= 0 ? "+" : "") + state.angleDeg.toFixed(2)}°) — [📍 6점 롤+스트레치 정렬]을 진행하세요.`;
+    }
+
+    function applySixPointAlignment() {
+      const pts = {};
+      for (const [key, , px, py] of state.sixPointSamples) {
+        pts[key] = [px, py];
+      }
+      const pairAngle = (pL, pR) => {
+        const dx = pR[0] - pL[0];
+        const dy = pR[1] - pL[1];
+        return Math.abs(dx) < 1e-6 ? 0.0 : (Math.atan2(dy, dx) * 180.0) / Math.PI;
+      };
+      const ang40 = pairAngle(pts["40L"], pts["40R"]);
+      const ang1 = pairAngle(pts["1L"], pts["1R"]);
+      const ang80 = pairAngle(pts["80L"], pts["80R"]);
+      const avgTilt = ang40 * 0.4 + ang1 * 0.3 + ang80 * 0.3;
+
+      state.angleDeg = +(state.angleDeg - avgTilt).toFixed(4);
+      syncAngleUI();
+
+      const rad = (-avgTilt * Math.PI) / 180.0;
+      const cosA = Math.cos(rad);
+      const sinA = Math.sin(rad);
+      const rot = {};
+      for (const k of Object.keys(pts)) {
+        const dx = pts[k][0] - state.cx;
+        const dy = pts[k][1] - state.cy;
+        rot[k] = [state.cx + (dx * cosA - dy * sinA), state.cy + (dx * sinA + dy * cosA)];
+      }
+
+      const leftSpan = Math.max(10.0, rot["80L"][1] - rot["1L"][1]);
+      const rightSpan = Math.max(10.0, rot["80R"][1] - rot["1R"][1]);
+      const spanRatio = leftSpan / rightSpan;
+      const left40Frac = (rot["40L"][1] - rot["1L"][1]) / leftSpan;
+      const right40Frac = (rot["40R"][1] - rot["1R"][1]) / rightSpan;
+      const fracDiff = left40Frac - right40Frac;
+
+      if (spanRatio >= 0.75 && spanRatio <= 1.35) {
+        let rawL = spanRatio < 1.0 ? state.leftStretch / spanRatio : state.leftStretch;
+        let rawR = spanRatio < 1.0 ? state.rightStretch : state.rightStretch * spanRatio;
+        if (Math.abs(fracDiff) > 0.005) {
+          const adj = clamp(fracDiff * 0.5, -0.08, 0.08);
+          rawL *= (1.0 - adj);
+          rawR *= (1.0 + adj);
+        }
+        state.leftStretch = clamp(+rawL.toFixed(2), 0.70, 1.80);
+        state.rightStretch = clamp(+rawR.toFixed(2), 0.70, 1.80);
+        syncStretchUI();
+      }
+
+      const relL = state.leftStretch / Math.max(1e-6, state.leftStretch);
+      const relR = state.rightStretch / Math.max(1e-6, state.rightStretch);
+      const y1L = state.cy + (rot["1L"][1] - state.cy) * relL;
+      const y1R = state.cy + (rot["1R"][1] - state.cy) * relR;
+      const y40L = state.cy + (rot["40L"][1] - state.cy) * relL;
+      const y40R = state.cy + (rot["40R"][1] - state.cy) * relR;
+      const y80L = state.cy + (rot["80L"][1] - state.cy) * relL;
+      const y80R = state.cy + (rot["80R"][1] - state.cy) * relR;
+
+      state.line1Y = 0.5 * (y1L + y1R);
+      state.line40Y = 0.5 * (y40L + y40R);
+      state.line80Y = 0.5 * (y80L + y80R);
+      getGuideLines();
+
+      state.sixPointMode = false;
+      state.sixPointSamples = [];
+      state.hoverPos = null;
+      setModeButtons();
+      analyze();
+    }
+
+    function applyCropRect() {
+      if (!state.img || !state.cropRect) return;
+      const [x1, y1, x2, y2] = state.cropRect;
+      const left = Math.min(x1, x2), right = Math.max(x1, x2);
+      const top = Math.min(y1, y2), bottom = Math.max(y1, y2);
+      if (right - left < 20 || bottom - top < 20) return;
+
+      const src = getActiveSourceRect();
+      const M = computeSrcToCanvasHomography(src.sw, src.sh);
+      const M_inv = invertMat3(M);
+      if (!M_inv) return;
+
+      const box = [[left, top], [right, top], [right, bottom], [left, bottom]].map(([px, py]) => matVec3(M_inv, px, py));
+      const sx1 = clamp(Math.min(...box.map(p => p[0])), 0, src.sw);
+      const sy1 = clamp(Math.min(...box.map(p => p[1])), 0, src.sh);
+      const sx2 = clamp(Math.max(...box.map(p => p[0])), 0, src.sw);
+      const sy2 = clamp(Math.max(...box.map(p => p[1])), 0, src.sh);
+      if (sx2 - sx1 < 10 || sy2 - sy1 < 10) return;
+
+      const relU1 = sx1 / src.sw, relV1 = sy1 / src.sh, relU2 = sx2 / src.sw, relV2 = sy2 / src.sh;
+      if (state.cropNorm) {
+        const [pu1, pv1, pu2, pv2] = state.cropNorm;
+        const pw = pu2 - pu1, ph = pv2 - pv1;
+        state.cropNorm = [
+          clamp(pu1 + relU1 * pw, 0, 1),
+          clamp(pv1 + relV1 * ph, 0, 1),
+          clamp(pu1 + relU2 * pw, 0, 1),
+          clamp(pv1 + relV2 * ph, 0, 1)
+        ];
+      } else {
+        state.cropNorm = [clamp(relU1, 0, 1), clamp(relV1, 0, 1), clamp(relU2, 0, 1), clamp(relV2, 0, 1)];
+      }
+
+      state.twoPointLine = null;
+      state.leftStretch = 1.0;
+      state.rightStretch = 1.0;
+      syncStretchUI();
+      clearSubModes();
+      computeResetTransform();
+      analyze();
+    }
+
+    function hitTest(x, y) {
+      const [topY, midY, botY] = getGuideLines();
+      if (Math.abs(y - topY) <= 10) return "line1";
+      if (Math.abs(y - midY) <= 10) return "line40";
+      if (Math.abs(y - botY) <= 10) return "line80";
+      if (!state.img) return null;
+
+      const h = getHandles();
+      if (Math.hypot(x - h.rotTop[0], y - h.rotTop[1]) <= 14) return "rotate_top";
+      for (const k of ["tl", "tr", "br", "bl"]) {
+        if (Math.hypot(x - h[k][0], y - h[k][1]) <= 14) return k;
+      }
+      const [lx, ly] = inverseRotatePoint(x, y, state.angleDeg);
+      if (Math.abs(lx) <= state.dispW / 2 && Math.abs(ly) <= state.dispH / 2) return "move";
+      return null;
+    }
+
+    function getCanvasCoords(evt) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / Math.max(1, rect.width);
+      const scaleY = canvas.height / Math.max(1, rect.height);
+      return [(evt.clientX - rect.left) * scaleX, (evt.clientY - rect.top) * scaleY];
+    }
+
+    canvas.addEventListener("pointermove", (evt) => {
+      const [x, y] = getCanvasCoords(evt);
+      if (state.twoPointMode || state.sixPointMode) {
+        state.hoverPos = [x, y];
+        render(false);
+        return;
+      }
+      if (state.cropMode) {
+        state.hoverPos = [x, y];
+        if (state.cropStart) {
+          state.cropRect = [state.cropStart[0], state.cropStart[1], x, y];
+          const w = Math.round(Math.abs(x - state.cropStart[0]));
+          const h = Math.round(Math.abs(y - state.cropStart[1]));
+          lblResult.style.color = "#ff80ab";
+          lblResult.textContent = ` ✂️ 크롭 드래그 중: (${Math.round(state.cropStart[0])}, ${Math.round(state.cropStart[1])}) → (${Math.round(x)}, ${Math.round(y)}) [크기: ${w}x${h}px]`;
+        }
+        render(false);
+        return;
+      }
+      if (!state.activeMode) return;
+
+      const dx = x - state.dragLastX;
+      const dy = y - state.dragLastY;
+
+      if (state.activeMode === "line1") { state.line1Y = y; getGuideLines(); }
+      else if (state.activeMode === "line40") { state.line40Y = y; getGuideLines(); }
+      else if (state.activeMode === "line80") { state.line80Y = y; getGuideLines(); }
+      else if (state.img) {
+        if (state.activeMode === "move") { state.cx += dx; state.cy += dy; }
+        else if (state.activeMode === "rotate_top") {
+          state.angleDeg = +((Math.atan2(y - state.cy, x - state.cx) * 180) / Math.PI + 90).toFixed(4);
+          syncAngleUI();
+        } else if (["tl", "tr", "br", "bl"].includes(state.activeMode)) {
+          stretchFromCorner(state.activeMode, x, y);
+        }
+      }
+      state.dragLastX = x;
+      state.dragLastY = y;
+      render(false);
+    });
+
+    canvas.addEventListener("pointerdown", (evt) => {
+      canvas.setPointerCapture(evt.pointerId);
+      const [x, y] = getCanvasCoords(evt);
+
+      if (state.twoPointMode) {
+        state.hoverPos = [x, y];
+        const idx = state.twoPointSamples.length;
+        if (idx < twoPointSteps.length) {
+          const [key] = twoPointSteps[idx];
+          state.twoPointSamples.push([key, BLUE_LINE, x, y]);
+          if (state.twoPointSamples.length >= 2) applyTwoPointAlignment();
+          else {
+            lblResult.style.color = "#80d8ff";
+            lblResult.textContent = " 🔵 " + twoPointSteps[state.twoPointSamples.length][1];
+            render(false);
+          }
+        }
+        return;
+      }
+
+      if (state.sixPointMode) {
+        state.hoverPos = [x, y];
+        const idx = state.sixPointSamples.length;
+        if (idx < sixPointSteps.length) {
+          const [key, color] = sixPointSteps[idx];
+          state.sixPointSamples.push([key, color, x, y]);
+          if (state.sixPointSamples.length >= 6) applySixPointAlignment();
+          else {
+            lblResult.style.color = "#ffd54f";
+            lblResult.textContent = " 📍 " + sixPointSteps[state.sixPointSamples.length][1];
+            render(false);
+          }
+        }
+        return;
+      }
+
+      if (state.cropMode) {
+        state.cropStart = [x, y];
+        state.cropRect = [x, y, x, y];
+        lblResult.style.color = "#ff80ab";
+        lblResult.textContent = ` ✂️ 크롭 시작점 고정됨 (${Math.round(x)}, ${Math.round(y)}) — 끝점까지 끌어서 놓으세요.`;
+        render(false);
+        return;
+      }
+
+      const hit = hitTest(x, y);
+      state.activeMode = hit;
+      if (["move", "rotate_top", "tl", "tr", "br", "bl"].includes(hit)) state.selected = true;
+      else if (!hit && state.img) state.selected = false;
+
+      state.dragLastX = x;
+      state.dragLastY = y;
+      render(false);
+    });
+
+    canvas.addEventListener("pointerup", (evt) => {
+      if (canvas.hasPointerCapture(evt.pointerId)) {
+        canvas.releasePointerCapture(evt.pointerId);
+      }
+      const [x, y] = getCanvasCoords(evt);
+      if (state.twoPointMode || state.sixPointMode) return;
+
+      if (state.cropMode && state.cropStart) {
+        state.cropRect = [state.cropStart[0], state.cropStart[1], x, y];
+        applyCropRect();
+        state.cropStart = null;
+        return;
+      }
+
+      if (state.activeMode) {
+        state.activeMode = null;
+        if (state.img) analyze();
+        else render(false);
+      }
+    });
+
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+    render(false);
+  </script>
+</body>
+</html>
